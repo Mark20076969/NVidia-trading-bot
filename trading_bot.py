@@ -16,17 +16,10 @@ CHECK_EVERY_SECONDS = 300  # milyen sűrűn ellenőrizzen (3600 = 1 óra)
 
 def get_klines(symbol: str, interval: str, limit: int = 100) -> pd.DataFrame:
     """Gyertyaadatok lekérése a Binance API-ról."""
-    url = "https://data.binance.com/api/v3/klines"   # ← blokk ellen
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; TradingBot/1.0; Railway)"
-    }
-    
+    url = "https://api.binance.com/api/v3/klines"
     params = {"symbol": symbol, "interval": interval, "limit": limit}
-    
-    resp = requests.get(url, params=params, headers=headers, timeout=15)
+    resp = requests.get(url, params=params, timeout=10)
     resp.raise_for_status()
-    
     data = resp.json()
     df = pd.DataFrame(data, columns=[
         "open_time", "open", "high", "low", "close", "volume",
