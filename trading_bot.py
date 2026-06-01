@@ -7,7 +7,7 @@ from datetime import datetime
 # ============================================================
 #  BEÁLLÍTÁSOK – csak ezt kell módosítani
 # ============================================================
-DISCORD_WEBHOOK_URL = "IDE_ILLESZD_BE_A_DISCORD_WEBHOOK_URL-T"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1510992723824476361/gaq_amfwdCkK5K1WH9QEMUk9g3fsu7ORlBdGu0_mdKbBshlQ9y7O2NkXKcHt19q9fpBj"
 SYMBOL = "bitcoin"        # CoinGecko ID: bitcoin, ethereum, stb.
 SYMBOL_DISPLAY = "BTCUSDT"
 CHECK_EVERY_SECONDS = 300  # 5 perc
