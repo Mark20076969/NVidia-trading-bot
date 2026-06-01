@@ -7,45 +7,40 @@ from datetime import datetime
 # ============================================================
 #  BEÁLLÍTÁSOK – csak ezt kell módosítani
 # ============================================================
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1510992723824476361/gaq_amfwdCkK5K1WH9QEMUk9g3fsu7ORlBdGu0_mdKbBshlQ9y7O2NkXKcHt19q9fpBj"
-SYMBOL = "BTCUSDT"
-INTERVAL = "5m"          # gyertya időkeret: 1m, 5m, 15m, 1h, 4h, 1d
-CHECK_EVERY_SECONDS = 300  # milyen sűrűn ellenőrizzen (3600 = 1 óra)
+DISCORD_WEBHOOK_URL = "IDE_ILLESZD_BE_A_DISCORD_WEBHOOK_URL-T"
+SYMBOL = "bitcoin"        # CoinGecko ID: bitcoin, ethereum, stb.
+SYMBOL_DISPLAY = "BTCUSDT"
+CHECK_EVERY_SECONDS = 300  # 5 perc
 # ============================================================
 
 
-def get_klines(symbol: str, interval: str, limit: int = 100) -> pd.DataFrame:
-    """Gyertyaadatok lekérése a Binance API-ról."""
-    url = "https://api.binance.com/api/v3/klines"
-    params = {"symbol": symbol, "interval": interval, "limit": limit}
-    resp = requests.get(url, params=params, timeout=10)
+def get_klines(coin_id: str, limit: int = 100) -> pd.DataFrame:
+    """Gyertyaadatok lekérése a CoinGecko API-ról (ingyenes, nincs blokkolva)."""
+    # 1 napos OHLC adatok (max 90 nap ingyen)
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/ohlc"
+    params = {"vs_currency": "usd", "days": "90"}
+    resp = requests.get(url, params=params, timeout=15)
     resp.raise_for_status()
     data = resp.json()
-    df = pd.DataFrame(data, columns=[
-        "open_time", "open", "high", "low", "close", "volume",
-        "close_time", "quote_volume", "trades",
-        "taker_buy_base", "taker_buy_quote", "ignore"
-    ])
-    for col in ["open", "high", "low", "close", "volume"]:
-        df[col] = df[col].astype(float)
+
+    df = pd.DataFrame(data, columns=["open_time", "open", "high", "low", "close"])
     df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
+    df["volume"] = 0.0  # CoinGecko OHLC nem ad volume-ot, placeholder
+    df = df.tail(limit).reset_index(drop=True)
     return df
 
 
 def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """RSI, EMA20, EMA50, MACD számítása."""
-    # RSI (14)
     delta = df["close"].diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     rs = gain / loss.replace(0, np.nan)
     df["rsi"] = 100 - (100 / (1 + rs))
 
-    # Mozgóátlagok
     df["ema20"] = df["close"].ewm(span=20, adjust=False).mean()
     df["ema50"] = df["close"].ewm(span=50, adjust=False).mean()
 
-    # MACD
     ema12 = df["close"].ewm(span=12, adjust=False).mean()
     ema26 = df["close"].ewm(span=26, adjust=False).mean()
     df["macd"] = ema12 - ema26
@@ -55,10 +50,6 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def detect_signal(df: pd.DataFrame):
-    """
-    Egyszerű jelzés-logika.
-    Visszaad: (signal_type, confidence, entry, stop, target) vagy None
-    """
     last = df.iloc[-1]
     prev = df.iloc[-2]
 
@@ -72,27 +63,23 @@ def detect_signal(df: pd.DataFrame):
     bullish_points = 0
     bearish_points = 0
 
-    # Trend: EMA keresztezés
     if ema20 > ema50:
         bullish_points += 2
     else:
         bearish_points += 2
 
-    # RSI
     if rsi < 35:
-        bullish_points += 2   # túladott = potenciális vétel
+        bullish_points += 2
     elif rsi > 65:
-        bearish_points += 2   # túlvett = potenciális eladás
+        bearish_points += 2
     elif 45 < rsi < 60:
-        bullish_points += 1   # semleges-bullish
+        bullish_points += 1
 
-    # MACD keresztezés
     if prev["macd"] < prev["macd_signal"] and macd > macd_sig:
-        bullish_points += 3   # bullish crossover
+        bullish_points += 3
     elif prev["macd"] > prev["macd_signal"] and macd < macd_sig:
-        bearish_points += 3   # bearish crossover
+        bearish_points += 3
 
-    # Ár az EMA felett/alatt
     if price > ema20:
         bullish_points += 1
     else:
@@ -105,9 +92,8 @@ def detect_signal(df: pd.DataFrame):
     bull_conf = (bullish_points / total) * 100
     bear_conf = (bearish_points / total) * 100
 
-    atr = (df["high"] - df["low"]).rolling(14).mean().iloc[-1]  # egyszerű ATR közelítés
+    atr = (df["high"] - df["low"]).rolling(14).mean().iloc[-1]
 
-    # Csak akkor küldjük el, ha elég erős a jelzés
     if bull_conf >= 65:
         entry = round(price, 1)
         stop = round(price - 1.5 * atr, 1)
@@ -126,13 +112,11 @@ def detect_signal(df: pd.DataFrame):
 
 
 def detect_pattern(df: pd.DataFrame, bearish: bool = False) -> str:
-    """Egyszerű pattern felismerés."""
     last3 = df.iloc[-3:]
     highs = last3["high"].values
     lows = last3["low"].values
 
     if not bearish:
-        # Bull Flag: az előző gyertyák csökkenő highs, de emelkedő trend
         if highs[-1] > highs[-2] and lows[-1] > lows[-2]:
             return "Bull Flag"
         if lows[-1] > lows[-2] > lows[-3]:
@@ -147,7 +131,6 @@ def detect_pattern(df: pd.DataFrame, bearish: bool = False) -> str:
 
 
 def send_discord(signal_data: tuple, symbol: str):
-    """Discord üzenet küldése webhook-on."""
     trend, pattern, entry, stop, target, confidence = signal_data
 
     emoji = "🟢" if trend == "Bullish" else "🔴"
@@ -179,17 +162,17 @@ def send_discord(signal_data: tuple, symbol: str):
 
 
 def main():
-    print(f"🤖 Trading bot elindult – {SYMBOL} figyelése ({INTERVAL} gyertyák)")
+    print(f"🤖 Trading bot elindult – {SYMBOL_DISPLAY} figyelése (napi gyertyák, CoinGecko)")
     print(f"   Ellenőrzés: minden {CHECK_EVERY_SECONDS // 60} percben\n")
 
     while True:
         try:
-            df = get_klines(SYMBOL, INTERVAL)
+            df = get_klines(SYMBOL)
             df = calculate_indicators(df)
             signal = detect_signal(df)
 
             if signal:
-                send_discord(signal, SYMBOL)
+                send_discord(signal, SYMBOL_DISPLAY)
             else:
                 print(f"[{datetime.now()}] Nincs elég erős jelzés most.")
 
